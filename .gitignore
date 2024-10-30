@@ -1,0 +1,12 @@
+# config files
+config.py
+*.config
+.env
+
+# Python files
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
