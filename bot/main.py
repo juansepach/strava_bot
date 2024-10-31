@@ -11,11 +11,10 @@ authorization_url = 'https://www.strava.com/oauth/authorize'
 redirect_uri = 'http://localhost:8080/callback'
 scope = 'read_all,activity:read_all,profile:read_all'
 token_url = 'https://www.strava.com/oauth/token'
-
 # Dictionaries to manage user states
 waiting_for_auth_code = {}  # Track users waiting for authorization code
 authorized_users = {}  # Store authorized users' access tokens
-
+athlete_id = None
 def generate_authorization_url():
     authorize_params = {
         'client_id': strava_id,
@@ -25,8 +24,8 @@ def generate_authorization_url():
     }
     return f'{authorization_url}?{urlencode(authorize_params)}'
 
+#Refreshes the Strava access token if expired for a given user
 def refresh_access_token(client_id, client_secret, message_chat_id):
-    """Refreshes the Strava access token if expired for a given user."""
     print(f"\n=== Refresh Token Debug ===")
     print(f"Chat ID: {message_chat_id}")
     print(f"Current authorized_users state: {json.dumps(authorized_users, indent=2)}")
@@ -73,11 +72,12 @@ def refresh_access_token(client_id, client_secret, message_chat_id):
     
     return access_token
 
+#initialize the bot
 app = Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
+#Sends the authorization URL if the user is not already authorized
 @app.on_message(filters.command('start') & filters.private)
 async def start(client, message):
-    """Sends the authorization URL if the user is not already authorized."""
     print(f"\n=== Start Command Debug ===")
     print(f"Chat ID: {message.chat.id}")
     print(f"User is authorized: {message.chat.id in authorized_users}")
@@ -95,9 +95,9 @@ async def start(client, message):
             f'After authorizing, copy the authorization code from the URL and send it back to this chat.'
         )
 
-@app.on_message(filters.text & filters.private & ~filters.regex(r'^/'))  # Changed to use regex filter
+#Handler for text messages, including authorization code
+@app.on_message(filters.text & filters.private & ~filters.regex(r'^/'))  # use regex filter
 async def handle_messages(client, message):
-    """Handler for text messages, including authorization code."""
     print(f"\n=== Message Handler Debug ===")
     print(f"Chat ID: {message.chat.id}")
     print(f"Message text: {message.text}")
@@ -127,7 +127,11 @@ async def handle_messages(client, message):
                 "expires_at": data['expires_at']
             }
             print(f"Authorization successful. Token stored: {json.dumps(authorized_users[message.chat.id], indent=2)}")
-            
+
+            #retrieved the athlete id
+            global athlete_id
+            athlete_id = data.get('athlete', {}).get('id',None)
+
             # Remove the waiting state AFTER successful authorization
             waiting_for_auth_code.pop(message.chat.id, None)
             print(f"Updated waiting_for_auth_code state: {waiting_for_auth_code}")
@@ -143,9 +147,9 @@ async def handle_messages(client, message):
             print("Authorization failed")
             await message.reply('Authorization failed. Please try again with /start command.')
 
+#Fetches and sends the user's Strava activities if authorized
 @app.on_message(filters.command('activities') & filters.private)
 async def activities(client, message):
-    """Fetches and sends the user's Strava activities if authorized."""
     print(f"\n=== Activities Command Debug ===")
     print(f"Chat ID: {message.chat.id}")
     print(f"Is user authorized: {message.chat.id in authorized_users}")
@@ -191,9 +195,56 @@ async def activities(client, message):
         print(f"Failed to get activities. Status code: {response.status_code}")
         await message.reply("Failed to retrieve activities. Please try again later.")
 
+#Fetches and sends the user's Strava stats if authorized
+@app.on_message(filters.command('stats') & filters.private)
+async def stats(client, message):
+    if athlete_id is not None:
+        print(f"\n=== Stats Command Debug ===")
+        print(f"Chat ID: {message.chat.id}")
+        print(f"Is user authorized: {message.chat.id in authorized_users}")
+        
+        if message.chat.id not in authorized_users:
+            print("User not authorized")
+            await message.reply("Please use /start command to authorize first.")
+            return
+
+        access_token = refresh_access_token(strava_id, strava_secret, message.chat.id)
+        print(f"Retrieved access token: {access_token is not None}")
+        
+        if not access_token:
+            print("Failed to get access token")
+            await message.reply("Failed to refresh access token. Please reauthorize with /start command.")
+            return
+
+        activities_url = f'{url}athletes/{athlete_id}/stats'
+        headers = {'Authorization': f'Bearer {access_token}'}
+        
+        print(f"Requesting stats from Strava...")
+        print(f"URL: {activities_url}")
+        print(f"Headers: {headers}")
+        
+        response = requests.get(activities_url, headers=headers)
+        print(f"Stats response status: {response.status_code}")
+        print(f"Stats response body: {response.text}")
+
+        if response.status_code == 200:
+            stats = response.json()
+            stats_message = (
+                f"🏃‍♂️ Your Activity stats:\n"
+                f"biggest_ride_distance: {stats.get('biggest_ride_distance', '')}\n"
+                f"biggest_climb_elevation_gain: {stats.get('biggest_climb_elevation_gain', '')}\n"
+            )
+            await message.reply(stats_message)
+        else:
+            print(f"Failed to get athlete info. Status code: {response.status_code}")
+            await message.reply("Failed to retrieve athlete information. Please try again later.")
+    print("User not authorized")
+    await message.reply("Please use /start command to authorize first.")
+    return
+
+#Fetches and sends the user's Strava profile if authorized.
 @app.on_message(filters.command('athlete') & filters.private)
 async def athlete(client, message):
-    """Fetches and sends the user's Strava profile if authorized."""
     print(f"\n=== Athlete Command Debug ===")
     print(f"Chat ID: {message.chat.id}")
     print(f"Is user authorized: {message.chat.id in authorized_users}")
@@ -237,9 +288,9 @@ async def athlete(client, message):
         print(f"Failed to get athlete info. Status code: {response.status_code}")
         await message.reply("Failed to retrieve athlete information. Please try again later.")
 
+#Fetches and sends the user's Strava zones if authorized
 @app.on_message(filters.command('zones') & filters.private)
 async def zones(client, message):
-    """Fetches and sends the user's Strava zones if authorized."""
     print(f"\n=== Zones Command Debug ===")
     print(f"Chat ID: {message.chat.id}")
     print(f"Is user authorized: {message.chat.id in authorized_users}")
