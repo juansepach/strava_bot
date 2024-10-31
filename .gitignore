@@ -3,6 +3,7 @@ config.py
 bot/config.py
 *.config
 .env
+bot/my_bot.session
 
 # Python files
 __pycache__/
