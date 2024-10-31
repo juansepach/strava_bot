@@ -4,6 +4,9 @@ from urllib.parse import urlencode
 from pyrogram import Client, filters
 import time
 import json
+from keep_alive import keep_alive
+
+keep_alive()
 
 # Strava API Configuration URLs and Endpoints
 url = 'https://www.strava.com/api/v3/'
